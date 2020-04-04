@@ -1,30 +1,245 @@
 ---
-title: "STTProject"
-author: "Ashley King"
-date: "3/23/2020"
+title: "project1"
+author: "Peter Gray"
+date: "3/25/2020"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(ggplot2)
+housing <- read_xlsx("Housing.xlsx")
 ```
 
-## R Markdown
+# Data Summary
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Exploratory Data Analysis
 
-```{r cars}
-summary(cars)
+```{r}
+housing_numeric <- housing[2:9]
+pairs(housing_numeric)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+cor(log(housing$price), housing_numeric)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
++ Since price is so large, for the rest of the EDA, we will be using a log of price
+    + This will reduce the SE.
++ It appears that garazesize, bedroom, lot, bath, and size have a weak correlation to price
++ Bath, yearbuilt, and agestandardized have a weaker correlation
+    + (Yearbuilt and agestandardized will not be used together in the same model)
+
+```{r}
+housing$logprice <- log(housing$price)
+```
+
+## Bath
+```{r}
+ggplot(housing, aes(x = bath, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
++ The data seems spread out in chunks, maybe performing a squared or cubic function to bath would help
+
+```{r}
+ggplot(housing, aes(x = bath^3, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
++ There is now a reasonable straight line, with a well spread SE, that could be used in a model.
+
+```{r}
+bathcubed <- housing$bath ^ 3
+summary(lm(logprice ~ bathcubed, data = housing))
+```
+
++ Bath is now statistically significant
+    
+## Size
+```{r}
+ggplot(housing, aes(x = size, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm", se=TRUE)
+```
+
++ There is a reasonable straight line, but the SE around the edges is high.
++ There appears to be one outlier, we will try and reduce the impact of it using a function on size
+
+```{r}
+sizecubed <- (housing$size) ^ (3)
+ggplot(housing, aes(x = sizecubed, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm", se=TRUE)
+```
+
++ We now have less errors in the small values of size, but the SE is worse for large sizes
+
+
+```{r}
+summary(lm(logprice ~ sizecubed, data = housing))
+```
+
++ Even after performing a transformation, size is still not significant.
+
+## Lot
+
+
+```{r}
+ggplot(housing, aes(x = lot, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
++ We still have a high SE around the large value of lot, but it fits the data well.
+
+```{r}
+summary(lm(logprice ~ lot, data = housing))
+```
+
++ There appears to be a positive correlation between lot and the log of price, and no transformation needed
+
+## Garagesize
+
+```{r}
+ggplot(housing, aes(x = garagesize, y = logprice, group = garagesize)) +
+  geom_boxplot() +
+  geom_smooth(method = "lm", se=TRUE, aes(group=1))
+```
+
++ There appears to be a positive correlation between garagesize and price
++ As the garagesize increases, so does the price, on average
+
+```{r}
+summary(lm(logprice ~ garagesize, data = housing))
+```
+
++ Garagesize is very significant, and no transformation is needed.
+
+
+## Elem
+
+```{r}
+ggplot(housing, aes(x = elem, y = logprice, group = elem)) +
+  geom_boxplot()
+```
+
++ On average, if you are zoned in the harris elementary school district, your house will have the highest price.
++ On average, if you are zoned in the adams elementary school district, your house will have the lowest price. 
+
+
+```{r}
+summary(lm(logprice ~ elem, data = housing))
+```
+
++ Two of the elementary schools are significant.
++ This could be useful in a model, but would not be useful for all cases.
+
+## Bedrooms
+
+```{r}
+ggplot(housing, aes(x = bedrooms, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
++ The lm function fits the bedrooms well, we have the lowest standard error between 3 and 4
+
+
+```{r}
+summary(lm(logprice ~ bedrooms, data = housing))
+```
+
++ Bedrooms is statistically significant, and no transformation is needed.
+
+
+## Agestandardized
+
+```{r}
+ggplot(housing, aes(x = agestandardized, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
++ At first glance, there appears to be no correlation between agestandardized and the log price.
++ If we are able to spread out the points more, there might be a clearer correlation
+
+```{r}
+newage <- housing$agestandardized ^ 2
+ggplot(housing, aes(x = newage, y = logprice)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
++ This appears to show a clearer trend
+
+```{r}
+summary(lm(logprice ~ newage, data = housing))
+```
+
++ Age is now statistically significant.
+
+## Status
+
+```{r}
+ggplot(housing, aes(x = status, y = logprice, group = status)) +
+  geom_boxplot()
+```
+
++ The status of act and pen are very close to each other, in terms of price.
++ sld has a wide array of values, which not might be the best for a model.
+
+```{r}
+summary(lm(logprice ~ status, data = housing))
+```
+
++ Although statussld has a significant correlation, statuspen has nearly no correlation.
++ This variable might not be the best for the model.
+
+## Conclusions
+
++ Based off of the EDA performed, predicting the log of price would be more accurate than predicting the price
+    + This is due to price having such a wide range
++ Based off of the EDA, the following variables are statistically significant by themselves:
+    + Bath (after being transformed to Bath ^ 3)
+    + Lot (no transformation needed)
+    + Garagesize (no transformation needed)
+    + elem (two of the elementary schools are, not recommended)
+    + Bedrooms (no transformation needed)
+    + Agestandardized (squared transformation)
++ Based off of the EDA, the following variables are **not** statistically significant by themselves:
+    + Size (before / after transformations)
+    + Status (only one status out of 2 is significant)
+
+
+```{r Data summary and EDA}
+#summary(housing)
+par(mfrow = c(2,2))
+lm1 <- lm(housing$price ~ housing$lot  + housing$bedrooms) 
+summary(lm1)
+plot(lm1)
+ggplot(housing, aes(x = lot, y = price)) +
+  geom_point(shape =2) + 
+  geom_smooth()
+```
+
+```{r no78}
+housing2 <- housing[-74,]
+lm2 <- lm(housing2$price ~ housing2$lot  + housing2$bedrooms) 
+summary(lm2)
+plot(lm2)
+```
+
+
+```{r natural log}
+housing$newPrice = log(housing$price)
+par(mfrow = c(2,2))
+lm3 <- lm(housing$newPrice ~ housing$size  + housing$bedrooms) 
+summary(lm3)
+plot(lm3)
+```
