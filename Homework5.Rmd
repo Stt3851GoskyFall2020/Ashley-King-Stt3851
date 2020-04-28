@@ -1,0 +1,191 @@
+---
+title: "Homework 5"
+author: "Ashley King"
+date: "4/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(boot)
+library(readxl)
+library(ISLR)
+```
+
+##9.	We will now consider the Boston housing data set, from the MASS library.
+
+### (a) Based on this data set, provide an estimate for the population mean of medv. Call this estimate $\hat\mu$
+
+```{r}
+mu = mean(Boston$medv)
+mu
+```
+
++ The estimated population mean of medv is 22.53281
+
+### (b) Provide an estimate of the standard error of $\hat\mu$. Interpret this result.
+
+Hint: We can compute the standard error of the sample mean by
+dividing the sample standard deviation by the square root of the
+number of observations.
+
+```{r}
+se_boston <- sd(Boston$medv) / sqrt(length(Boston$medv))
+se_boston
+```
+
++ Since our mean value is 22.53, the standard error of 0.4089 is low
+
+### (c) Now estimate the standard error of $\hat\mu$ using the bootstrap. How does this compare to your answer from (b)?
+
+```{r}
+set.seed(100)
+mean_data <- function(data, index) {
+  return(mean(data$medv[index]))
+}
+results <- boot(Boston, mean_data, R=10000)
+results
+```
+
++ mean_data is a function that returns the mean value of medv based on the indexed rows
++ I did a bootstrap using the boot function of 10000 replications, using my mean_data function
++ The std. error of 0.412 is very similar to part b (0.4089), just a little bit higher
+
+### (d) Based on your bootstrap estimate from (c), provide a 95 % confidence interval for the mean of medv. Compare it to the results obtained using t.test(Boston$medv).
+
+Hint: You can approximate a 95 % confidence interval using the
+formula [ˆμ − 2SE(ˆμ), μˆ + 2SE(ˆμ)].
+
+
+```{r}
+results
+
+mu_hat = 22.53281 #we get this from results original field
+se = 0.4120724    #we get this from results std. error field
+
+low = mu_hat - 2 * se
+high = mu_hat + 2 * se
+CI_boot <- cbind(low, high)
+CI_boot
+```
+
++ The 95% CI for the mean of medv using our bootstrap estimate is (21.709, 23.357)
+
+```{r}
+t.test(Boston$medv)
+```
+
++ The 95% CI for the mean of medv for the t.test is (21.729, 23.336)
++ These are very similar, only a few decimal places off from each other
+
+### (e) Based on this data set, provide an estimate, $\hat\mu_{med}$, for the median value of medv in the population.
+
+
+```{r}
+mu_med <- median(Boston$medv)
+mu_med
+```
+
++ Our estimate for the median value of medv is 21.2
+
+### (f) We now would like to estimate the standard error of $\hat\mu_{med}$. Unfortunately, there is no simple formula for computing the standard error of the median. Instead, estimate the standard error of the median using the bootstrap. Comment on your findings.
+
+```{r}
+set.seed(100)
+median_data <- function(data, index) {
+  return(median(data$medv[index]))
+}
+results_median <- boot(Boston,median_data,R=10000)
+results_median
+```
+
++ The standard error of 0.3826 is low considering that the median medv value is 21.2
++ This shows a low standard error and a low bias, which is good
+
+## Part b: 
+
++ Using the college football data set, compare the following two models:  
++ i.	Y = Zsagarin;   Predictors:  lyzsagarin + Fr5star + Coachexp_school, and 
++ ii.	Y = Zsagarin;   Predictors:  lyzsagarin + Fr5star + Fr5star^2 + Coachexp_school + Coachexp_school^2 using:
+
+```{r}
+cfb <- read_excel("CFB2018completeISLR.xlsx")
+```
+
+
+
+## 1. The validation set approach (you can choose whatever training/test split that you want)
+
+### Creating training index
+
+```{r}
+total_length <- nrow(cfb)
+train <- sample(total_length, total_length * 0.60)
+```
+
+### First model
+```{r}
+model_one_lm <- lm(Zsagarin ~ z_lysagarin + Fr5star + coachexp_school, data = cfb, subset = train)
+model_one_lm
+# This assess the test data set mean squared error.
+mean((cfb$Zsagarin-predict(model_one_lm,cfb))[-train]^2)
+```
+
++ This is a low MSE, of 0.5231
+
+### Second model
+
+```{r}
+model_two_lm <- lm(Zsagarin ~ z_lysagarin + poly(Fr5star, 2) + poly(coachexp_school, 2), data = cfb, subset = train)
+model_two_lm
+# This assess the test data set mean squared error.
+mean((cfb$Zsagarin-predict(model_two_lm,cfb))[-train]^2)
+```
+
++ The Mean Squared error for model one was 0.5231, while the Mean Squared error for model two was 0.518
++ The error rate is slightly lower, so for the validation set approach, model two outperformed model one
+
+
+## 2. Leave one out cross validation
+
+
++ Here we are just creating our glm models
+
+```{r}
+glm_model_one <- glm(Zsagarin ~ z_lysagarin + Fr5star + coachexp_school, data = cfb)
+glm_model_one
+glm_model_two <- glm(Zsagarin ~ z_lysagarin + poly(Fr5star, 2) + poly(coachexp_school,2), data=cfb)
+glm_model_two
+```
+
+
+```{r}
+cv.err_model_one <- cv.glm(cfb, glm_model_one)
+cv.err_model_one$delta[1]
+```
+
+```{r}
+cv.error_model_two <- cv.glm(cfb, glm_model_two)
+cv.error_model_two$delta[1]
+```
+
++ The delta number for model one is 0.5207, for the second model it is 0.5196
++ Therefore, we can conclude that the second model performs better according to LOOCV.
+
+
+## 3.	k-fold cross validation (you can choose the level of K that you want)
+
+```{r}
+
+cv.glm.one <- cv.glm(cfb, glm_model_one, K=10)
+
+cv.glm.two <- cv.glm(cfb, glm_model_two, K=10)
+
+cv.glm.one$delta[1]
+cv.glm.two$delta[1]
+```
+
++ I chose to choose a K level of 10
++ The delta value for model two is very slightly lower, so we can conclude that according to K-fold cross validation, model two performs better.
+
