@@ -1,0 +1,270 @@
+---
+title: 'Project #2'
+author: "Group Members: Ashley King, Peter Gray"
+date: '`r format(Sys.Date(), "%B-%d-%Y")`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(leaps)
+library(glmnet)
+library(ISLR)
+library(pls)
+```
+
+## a) First candidate model (Model we arrived at in the last project)
+
+
+```{r}
+housing <- read_excel("Housing.xlsx")
+
+model_one <-lm(price ~ poly(bath,3) + lot + garagesize, data = housing)
+summary(model_one)
+```
+
++ The model that we ended up with had a multiple R squared value of 0.2845 (not too good)
++ It had a good F-statistic, but not great.
++ This model also had a very decent p-value.
+With all of this it explained less than 1/3 of any variation, but what variation it can explain, is very likely to be correct.
+
+## b) Creating our second candidate model using regsubsets.
+
+We decided to use backwards selection because we wanted to remove the worse predictors first.   This method also avoids the suppresion affect of a single predictor.
+
+### Using backwards selection
+```{r}
+regfit_backwards <- regsubsets(price ~ size + lot + bath + bedrooms + agestandardized + garagesize + status + elem, data = housing, nvmax = 14, method = "backward")
+
+reg.summary <- summary(regfit_backwards)
+```
+
+### Determining the number of variables
+
+To determine the number of variables, we have plotted the output statistics for each number of variables.
+Thus we can see how many variables is best for each statistic.
+
+```{r}
+
+par(mfrow=c(2,2))
+plot(reg.summary$rsq,xlab="Number of Variables",ylab="R-squared",type="l")
+which.max(reg.summary$rsq)
+
+
+plot(reg.summary$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+which.max(reg.summary$adjr2)
+
+points(9,reg.summary$adjr2[9], col="red",cex=2,pch=20)
+plot(reg.summary$cp,xlab="Number of Variables",ylab="Cp",type='l')
+which.min(reg.summary$cp)
+
+
+points(6,reg.summary$cp[6],col="red",cex=2,pch=20)
+which.min(reg.summary$bic)
+
+
+plot(reg.summary$bic,xlab="Number of Variables",ylab="BIC",type='l')
+points(6,reg.summary$bic[6],col="red",cex=2,pch=20)
+```
+
++ R squared and R squared adjusted are better evaluators for models with larger values, so I will choose according to the R squared values
+    + R squared optimal is 13
+    + however there is barely any difference between the values for R squared between 9 and 13 predictors
+    + Adjusted R squared optimal is 9
++ So I am giving more weight to the 9, predictors because it gets worse as it passes 10 predictors.
++ Thus we are going with 9 predictors.  This decision also allows the predictors to be better for Cp.
+
+```{r}
+plot(regfit_backwards)
+```
+
+
+
+### Determining the coefficients
+```{r}
+coef(regfit_backwards, 9)
+```
+
++ The significant coefficients are: Size, lot, bedrooms, garagesize, status, and elem
+
+### Building the model
+```{r}
+model_two <- lm(price ~ size + lot + bedrooms + garagesize + status + elem, data = housing)
+summary(model_two)
+```
+
++ This already has a higher R-squared value, of 0.5366
++ It also has a small RSE, and statistically significant F-statistic.
++ There are only 5 statistically significant predictors
+    + Note: the elem variable has 5 different ordinal values, only 2 are significant
+    + Status has 2 different ordinal values, 1 is significant
+
+## c) Creating a training/test split using half of the data
+
+```{r}
+# Select the training and test data sets.
+set.seed(111)
+trainIndex <- sample(nrow(housing), nrow(housing) * 0.5, replace = FALSE)
+train <- housing[trainIndex,]
+test <- housing[-trainIndex,]
+```
+
+
+## d) Third candidate model: Using regsubsets over the training data, then the entire data set
+
+### Running over the training dataset to determine the number of predictors
+
+```{r}
+# Run the regsubsets command to get the "best" model with each possible number of predictors (on the training data).
+regfit.best <- regsubsets(price ~ size + lot + bath + bedrooms + agestandardized + garagesize + status + elem, data = train, nvmax = 13)
+
+
+test.mat <- model.matrix(price ~ size + lot + bath + bedrooms + agestandardized + garagesize + status + elem, data=test, nvmax = 13)
+
+# Setup a vector to store the validation errors.
+val.errors <- rep(NA, 13)
+
+# This for loop takes the coefficients for each of the 13 models, uses them to predict the outcomes in the test data set, and then calculates the test MSE of those predictions.
+i = 0
+for(i in 1:13){
+  coefi=coef(regfit.best,id=i)
+  pred=test.mat[,names(coefi)]%*%coefi
+  val.errors[i] <- mean((test$price-pred)^2)
+}
+
+# Listing all of the validation errors.
+val.errors
+# List the model with the smallest validation error.
+which.min(val.errors)
+```
+
++ It appears that our best model is the fifth model.
+
+### Running regsubsets on the whole dataset
+
+```{r}
+regfit.best <- regsubsets(price ~ size + lot + bath + bedrooms + agestandardized + garagesize + status + elem, data = housing, nvmax = 13)
+coef(regfit.best,which.min(val.errors))
+```
+
+```{r}
+model_three <- lm(price ~ size + lot + status + elem, data = housing)
+summary(model_three)
+```
+
++ This did not perform as well as model two, but is still respectable
++ We have a good Multiple R-squared value of 0.4995, and good F-statistic.
+
+## e) Fourth candidate model: Using ridge regression
+
+### Determining the best $\lambda$ value
+
+```{r}
+# need to split into x and y for glmnet
+train_x = model.matrix(price~., train)
+train_y = train$price
+test_x = model.matrix(price~., test)
+test_y = test$price
+
+```
+
+```{r}
+set.seed(111)
+cv.out = cv.glmnet(train_x, train_y, alpha = 0)
+plot(cv.out)
+```
+
++ It appears that the best log(Lambda) value is ~4
+
+```{r}
+ridge_bestlam = cv.out$lambda.min
+ridge_bestlam
+```
+
+### Building our model
+
+```{r}
+ridge.mod = glmnet(train_x, train_y, alpha=0, lambda=ridge_bestlam, thresh=1e-12)
+```
+
+
+## f) Using partial least squares regression 
+
+### Using cross validation to determine the number of components.
+
+```{r}
+set.seed(111)
+plsr_housing = plsr(price~., data=housing, subset = trainIndex, scale=TRUE, validation="CV", ncomp = 13)
+```
+
+```{r}
+validationplot(plsr_housing,val.type="MSEP")
+```
+
++ The graph shows that the MSEP is minimized below 2.
++ I will choose 1 for the number of components
+
+## g) Evaluating our models
+
+### Calculating the MSE for predicting test data
+
+
+```{r}
+first_pred <- predict(model_one, test)
+first_error <- mean((first_pred-test_y)^2)
+
+second_pred <- predict(model_two, test)
+second_error <- mean((second_pred - test_y)^2)
+
+third_pred <- predict(model_three, test)
+third_error <- mean((third_pred - test_y)^2)
+
+plsr_pred = predict(plsr_housing, test, ncomp = 1)
+plsr_error <- mean((plsr_pred-test_y)^2) 
+
+ridge_pred = predict(ridge.mod, s = ridge_bestlam, newx = test_x)
+ridge_error <- mean((ridge_pred-test_y)^2) 
+
+cbind(first_error, second_error, third_error, ridge_error, plsr_error)
+```
+
++ Looking at the five errors, it appears that the rankings of best to worst models are:
+    + Second model (regsubsets of training data using backwards selection): 1478.651
+    + Third model (regsubsets over all data): 1804.591
+    + Fifth model (PLSR): 1859.296
+    + Fourth model (Ridge Regression): 1940.812
+    + First model (Previous model): 2072.87
++ All of our new candidate models have outperformed the first model.
+
+### Calculating R squared values
+
+```{r}
+rsq = function (predicted, actual) {
+  return(1 - (sum((predicted - actual) ^ 2)/sum((actual - mean(actual)) ^ 2) ))
+}
+
+second_rsq <- rsq(second_pred, test_y)
+third_rsq <- rsq(third_pred, test_y)
+first_rsq <- rsq(first_pred, test_y)
+plsr_rsq <- rsq(plsr_pred, test_y)
+ridge_rsq <- rsq(ridge_pred, test_y)
+
+cbind(second_rsq, plsr_rsq, third_rsq, ridge_rsq, first_rsq)
+```
+
++ Our R-squared values range from 0.55 to 0.37, with the second model having the highest.
+
+### Explanation of our final model/the model that we prefer
+
+```{r}
+summary(model_two)
+```
+
++ It is clear that our second model is the best model to use.
+    + It maximizes the R-squared value at 0.5366.  This means that we are explaining over half of the variation with this model.
+    + It also minimizes the MSE, and only has 6 variables in it, which means it is easier to understand.
++ We built this model using regsubsets via backwards selection, so we removed the unneeded predictors.
++ This model also has a statistically significant p-value, and a decent F statistic.
+    
+    
